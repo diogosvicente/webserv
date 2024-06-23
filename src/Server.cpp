@@ -165,6 +165,12 @@ void Server::handleRequest(int client_fd) {
         return;
     }
 
+    if (method == "GET" && uri == "/cause500") {
+        sendErrorResponse(client_fd, 500, "Internal Server Error");
+        close(client_fd);
+        return;
+    }
+
     if (method == "GET") {
         if (uri == "/") {
             requested_path += "/index.html";

@@ -15,7 +15,32 @@
             <li class="list-group-item"><a href="/cgi-bin/test.php" target="_blank">Test CGI script execution</a></li>
             <li class="list-group-item"><a href="/upload_test.html" target="_blank">Test File Upload (POST request)</a></li>
             <li class="list-group-item"><a href="/delete_test.html" target="_blank">Test File Delete (DELETE request)</a></li>
+            <li class="list-group-item"><a href="#" onclick="testMethodNotAllowed(); return false;">Test 405 Method Not Allowed</a></li>
+            <li class="list-group-item"><a href="/cause500" target="_blank">Test 500 Internal Server Error</a></li>
         </ul>
+        <div id="result" class="alert"></div>
     </div>
 </body>
+<script>
+    function testMethodNotAllowed() {
+        fetch('/index.html', {
+            method: 'PUT'
+        })
+        .then(response => {
+            const resultDiv = document.getElementById('result');
+            if (response.status === 405) {
+                resultDiv.className = 'alert alert-success';
+                resultDiv.textContent = 'Received 405 Method Not Allowed as expected.';
+            } else {
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.textContent = 'Expected 405 Method Not Allowed, but received status ' + response.status;
+            }
+        })
+        .catch(error => {
+            const resultDiv = document.getElementById('result');
+            resultDiv.className = 'alert alert-danger';
+            resultDiv.textContent = 'Error: ' + error;
+        });
+    }
+</script>
 </html>
