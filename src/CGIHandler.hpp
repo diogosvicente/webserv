@@ -2,23 +2,17 @@
 #define CGIHANDLER_HPP
 
 #include <string>
-#include <map>
+#include "HTTPRequest.hpp"
 
 class CGIHandler {
 public:
-    CGIHandler(const std::string& script_path, const std::map<std::string, std::string>& env_vars);
-    
-    void execute();
-
-    std::string getOutput() const;
+    CGIHandler(const std::string& script_path, const HTTPRequest& request);
+    std::string execute();
 
 private:
     std::string script_path;
-    std::map<std::string, std::string> env_vars;
-    std::string output;
-
+    HTTPRequest request;
     void setEnvironment() const;
-    std::string readFromPipe(int fd) const;
 };
 
-#endif // CGIHANDLER_HPP
+#endif

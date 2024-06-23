@@ -1,6 +1,8 @@
-#include <iostream>
 #include "Server.hpp"
 #include "ConfigParser.hpp"
+#include <iostream>
+#include <map>
+#include <string>
 
 int main(int argc, char* argv[]) {
     if (argc != 2) {
@@ -8,23 +10,14 @@ int main(int argc, char* argv[]) {
         return 1;
     }
 
-    const std::string configFile = argv[1];
-
-    // Parse the configuration file
-    ConfigParser configParser(configFile);
     try {
-        configParser.parse();
-    } catch (const std::exception& e) {
-        std::cerr << "Error parsing configuration file: " << e.what() << std::endl;
-        return 1;
-    }
+        ConfigParser parser(argv[1]);
+        std::map<std::string, std::string> config = parser.getConfig();
 
-    // Create and start the server
-    try {
-        Server server(configParser.getConfig());
+        Server server(config);
         server.run();
     } catch (const std::exception& e) {
-        std::cerr << "Error starting server: " << e.what() << std::endl;
+        std::cerr << "Error: " << e.what() << std::endl;
         return 1;
     }
 

@@ -26,26 +26,22 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re run run1 run2 run3 test_all
+.PHONY: all clean fclean re run test_get test_post test_delete test_responses
 
 # Regras de execução
 run:
 	./webserv config/webserv.conf
 
-run1:
-	@echo "Testing 200 OK response..."; \
-	curl -i "http://localhost:8081"; \
-	echo "Testing 404 Not Found response..."; \
-	curl -i "http://localhost:8081/nonexistent";
+test_get:
+	@tests/test_get.sh
 
-run2:
-	@echo "Testing HTML file..."; \
-	curl -i "http://localhost:8081/index.html"; \
-	echo "Testing CSS file..."; \
-	curl -i "http://localhost:8081/styles.css";
+test_post:
+	@tests/test_post.sh
 
-run3:
-	@echo "Testing PHP script..."; \
-	curl -i "http://localhost:8081/cgi-bin/test.php";
+test_delete:
+	@tests/test_delete.sh
 
-test_all: run1 run2 run3
+test_responses:
+	@tests/test_responses.sh
+
+test_all: test_get test_post test_delete test_responses

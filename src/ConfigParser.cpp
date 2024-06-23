@@ -1,62 +1,53 @@
 #include "ConfigParser.hpp"
 #include <fstream>
 #include <sstream>
-#include <iostream>
+#include <stdexcept>
 #include <algorithm>
 #include <cctype>
 
-// Constructor: initializes the parser with the config file path
-ConfigParser::ConfigParser(const std::string& filename) : filename(filename) {}
+ConfigParser::ConfigParser(const std::string& filename) {
+    parseConfig(filename);
+}
 
-// Public method to parse the configuration file
-void ConfigParser::parse() {
+std::map<std::string, std::string> ConfigParser::getConfig() const {
+    return config;
+}
+
+void ConfigParser::parseConfig(const std::string& filename) {
     std::ifstream file(filename.c_str());
     if (!file.is_open()) {
-        throw std::runtime_error("Error: Unable to open config file.");
+        throw std::runtime_error("Failed to open config file");
     }
-    
+
     std::string line;
     while (std::getline(file, line)) {
-        parseLine(line);
-    }
-}
+        trim(line);
+        if (line.empty() || line[0] == '#' || line[0] == '{' || line[0] == '}') {
+            continue;
+        }
 
-// Parses a single line of the configuration file
-void ConfigParser::parseLine(const std::string& line) {
-    std::istringstream iss(line);
-    std::string key, value;
-    if (std::getline(iss, key, ' ') && std::getline(iss, value)) {
+        size_t delimiter_pos = line.find(' ');
+        if (delimiter_pos == std::string::npos) {
+            throw std::runtime_error("Invalid config line: " + line);
+        }
+
+        std::string key = line.substr(0, delimiter_pos);
+        std::string value = line.substr(delimiter_pos + 1);
+
         trim(key);
         trim(value);
-        if (!key.empty() && !value.empty()) {
-            config[key] = value;
+
+        // Remove trailing semicolon if present
+        if (!value.empty() && value[value.size() - 1] == ';') {
+            value.erase(value.size() - 1);
         }
+
+        trim(value);
+        config[key] = value;
     }
 }
 
-// Trims leading and trailing whitespace from a string
-void ConfigParser::trim(std::string &str) {
-    // Trim leading whitespace
-    std::string::iterator it = str.begin();
-    while (it != str.end() && std::isspace(*it)) {
-        ++it;
-    }
-    str.erase(str.begin(), it);
-
-    // Trim trailing whitespace
-    if (!str.empty()) {
-        it = str.end() - 1;
-        while (it != str.begin() && std::isspace(*it)) {
-            --it;
-        }
-        if (!std::isspace(*it)) {
-            ++it;
-        }
-        str.erase(it, str.end());
-    }
-}
-
-// Returns the parsed configuration as a map
-const std::map<std::string, std::string>& ConfigParser::getConfig() const {
-    return config;
+void ConfigParser::trim(std::string& str) {
+    str.erase(str.begin(), std::find_if(str.begin(), str.end(), std::not1(std::ptr_fun<int, int>(std::isspace))));
+    str.erase(std::find_if(str.rbegin(), str.rend(), std::not1(std::ptr_fun<int, int>(std::isspace))).base(), str.end());
 }

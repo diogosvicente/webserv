@@ -7,16 +7,12 @@
 class ConfigParser {
 public:
     ConfigParser(const std::string& filename);
-    void parse();
-
-    const std::map<std::string, std::string>& getConfig() const;
+    std::map<std::string, std::string> getConfig() const;
 
 private:
-    std::string filename;
     std::map<std::string, std::string> config;
-
-    void parseLine(const std::string& line);
-    void trim(std::string &str);
+    void parseConfig(const std::string& filename);
+    void trim(std::string& str);
 };
 
-#endif // CONFIGPARSER_HPP
+#endif

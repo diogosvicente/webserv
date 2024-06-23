@@ -1,72 +1,64 @@
 #include "CGIHandler.hpp"
-#include <stdexcept>
 #include <unistd.h>
-#include <fcntl.h>
 #include <sys/wait.h>
-#include <vector>
-#include <cstring>
-#include <sstream>
 #include <iostream>
-#include <cerrno>
-#include <cstdlib>  // for exit()
-extern char **environ; // for environment variables
+#include <fstream>
+#include <sstream>
+#include <cstring>
+#include <cstdlib>
 
-CGIHandler::CGIHandler(const std::string& script_path, const std::map<std::string, std::string>& env_vars)
-    : script_path(script_path), env_vars(env_vars) {}
+CGIHandler::CGIHandler(const std::string& script_path, const HTTPRequest& request)
+    : script_path(script_path), request(request) {}
 
-void CGIHandler::execute() {
+std::string CGIHandler::execute() {
     int pipe_fd[2];
     if (pipe(pipe_fd) == -1) {
-        throw std::runtime_error("Failed to create pipe");
+        std::cerr << "Failed to create pipe: " << strerror(errno) << std::endl;
+        return "";
     }
 
     pid_t pid = fork();
     if (pid == -1) {
-        throw std::runtime_error("Failed to fork");
-    } else if (pid == 0) {
-        // Child process
+        std::cerr << "Failed to fork: " << strerror(errno) << std::endl;
+        return "";
+    }
+
+    if (pid == 0) { // Child process
         close(pipe_fd[0]); // Close read end
-        dup2(pipe_fd[1], STDOUT_FILENO); // Redirect stdout to write end of pipe
+
+        dup2(pipe_fd[1], STDOUT_FILENO);
         close(pipe_fd[1]);
 
         setEnvironment();
 
-        execl(script_path.c_str(), script_path.c_str(), (char*)NULL);
-        // If execl fails
+        char* args[] = { const_cast<char*>(script_path.c_str()), NULL };
+        execve(script_path.c_str(), args, environ);
+
         std::cerr << "Failed to execute CGI script: " << strerror(errno) << std::endl;
         exit(1);
-    } else {
-        // Parent process
+    } else { // Parent process
         close(pipe_fd[1]); // Close write end
-        output = readFromPipe(pipe_fd[0]);
+
+        waitpid(pid, NULL, 0);
+
+        std::stringstream output;
+        char buffer[1024];
+        ssize_t bytes_read;
+        while ((bytes_read = read(pipe_fd[0], buffer, sizeof(buffer))) > 0) {
+            output.write(buffer, bytes_read);
+        }
         close(pipe_fd[0]);
 
-        int status;
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status) && WEXITSTATUS(status) != 0) {
-            throw std::runtime_error("CGI script exited with an error");
-        }
+        return output.str();
     }
-}
-
-std::string CGIHandler::getOutput() const {
-    return output;
 }
 
 void CGIHandler::setEnvironment() const {
-    for (std::map<std::string, std::string>::const_iterator it = env_vars.begin(); it != env_vars.end(); ++it) {
-        setenv(it->first.c_str(), it->second.c_str(), 1);
-    }
+    setenv("REQUEST_METHOD", request.getMethod().c_str(), 1);
+    setenv("QUERY_STRING", request.getQueryString().c_str(), 1);
+    setenv("CONTENT_TYPE", request.getHeader("Content-Type").c_str(), 1);
+    setenv("CONTENT_LENGTH", request.getHeader("Content-Length").c_str(), 1);
+    setenv("SCRIPT_FILENAME", script_path.c_str(), 1);
+    setenv("PATH_INFO", request.getPath().c_str(), 1);
 }
 
-std::string CGIHandler::readFromPipe(int fd) const {
-    std::ostringstream oss;
-    char buffer[4096];
-    ssize_t bytes_read;
-
-    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-        oss.write(buffer, bytes_read);
-    }
-
-    return oss.str();
-}
