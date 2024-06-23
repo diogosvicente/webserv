@@ -153,6 +153,7 @@ void Server::handleRequest(int client_fd) {
         if (uri == "/") {
             requested_path += "/index.html";
         }
+
         struct stat file_stat;
         if (stat(requested_path.c_str(), &file_stat) == 0) {
             if (S_ISDIR(file_stat.st_mode)) {
@@ -163,7 +164,19 @@ void Server::handleRequest(int client_fd) {
                     return;
                 }
             }
-            serveFile(client_fd, requested_path);
+
+            if (requested_path.find(".php") != std::string::npos) {
+                CGIHandler cgi_handler(requested_path, request);
+                std::string cgi_output = cgi_handler.execute();
+                HTTPResponse response;
+                response.setStatusCode(200);
+                response.setStatusMessage("OK");
+                response.setHeader("Content-Type", "text/html");
+                response.setBody(cgi_output);
+                send(client_fd, response.toString().c_str(), response.toString().length(), 0);
+            } else {
+                serveFile(client_fd, requested_path);
+            }
         } else {
             sendErrorResponse(client_fd, 404, "Not Found");
         }
@@ -216,15 +229,15 @@ std::string Server::intToString(int num) {
 }
 
 void Server::serveFile(int client_fd, const std::string& path) {
-    std::string content = readFile(path);
-    if (content.empty()) {
-        sendErrorResponse(client_fd, 404, "Not Found");
-        return;
-    }
+    std::string file_content = readFile(path);
     HTTPResponse response;
     response.setStatusCode(200);
     response.setStatusMessage("OK");
     response.setHeader("Content-Type", getMimeType(path));
-    response.setBody(content);
-    send(client_fd, response.toString().c_str(), response.toString().length(), 0);
+    response.setBody(file_content);
+
+    std::string raw_response = response.toString();
+    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
+        std::cerr << "Error writing file response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+    }
 }
