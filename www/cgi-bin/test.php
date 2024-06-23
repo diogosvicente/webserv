@@ -1,3 +1,4 @@
 <?php
-    echo "Hello World from PHP!";
+    echo "PHP Test <br>";
+    echo "Hello, PHP! <br>";
 ?>

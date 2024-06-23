@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <title>Test File Delete</title>
+    <link rel="stylesheet" type="text/css" href="bootstrap.min.css">
+</head>
+<body class="bg-secondary">
+    <div class="container text-center mt-5">
+        <h1>Test File Delete</h1>
+        <p class="lead">Attempting to delete file <code>filetest.txt</code>...</p>
+        <div id="result" class="alert"></div>
+        <a href="/index.html" class="btn btn-secondary mt-3">Back to Main Page</a>
+    </div>
+    <script>
+        function deleteFile() {
+            fetch('/upload/Concurso.txt', {
+                method: 'DELETE'
+            })
+            .then(response => {
+                const resultDiv = document.getElementById('result');
+                if (response.ok) {
+                    resultDiv.className = 'alert alert-success';
+                    resultDiv.textContent = 'File deleted successfully.';
+                } else {
+                    resultDiv.className = 'alert alert-danger';
+                    resultDiv.textContent = 'Failed to delete file.';
+                }
+            })
+            .catch(error => {
+                const resultDiv = document.getElementById('result');
+                resultDiv.className = 'alert alert-danger';
+                resultDiv.textContent = 'Error: ' + error;
+            });
+        }
+
+        window.onload = deleteFile;
+    </script>
+</body>
+</html>

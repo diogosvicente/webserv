@@ -102,29 +102,33 @@ void Server::handleRequest(int client_fd) {
     char buffer[4096];
     int bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
     if (bytes_read < 0) {
-        std::cerr << "Error reading from socket: " << strerror(errno) << std::endl;
+        std::cerr << "Error reading from socket\n";
         close(client_fd);
         return;
     }
     buffer[bytes_read] = '\0';
     std::string raw_request(buffer);
-    std::cout << "Raw request: " << raw_request << std::endl;
-
     HTTPRequest request(raw_request);
 
     std::string method = request.getMethod();
     std::string uri = request.getPath();
     std::string requested_path = config["root"] + uri;
 
-    std::cout << "Method: " << method << ", URI: " << uri << ", Requested Path: " << requested_path << std::endl;
-
     if (method == "POST" && uri == "/upload") {
-        size_t content_start = raw_request.find("\r\n\r\n") + 4;
-        std::string content = raw_request.substr(content_start);
-        std::string filename = "testfile.txt";  // Simulação, extraia o nome do arquivo da requisição
+        std::string boundary = "--" + request.getHeader("Content-Type").substr(30);
+        size_t filename_pos = raw_request.find("filename=\"") + 10;
+        size_t filename_end_pos = raw_request.find("\"", filename_pos);
+        std::string filename = raw_request.substr(filename_pos, filename_end_pos - filename_pos);
+
+        size_t file_content_start = raw_request.find("\r\n\r\n", filename_end_pos) + 4;
+        size_t file_content_end = raw_request.find(boundary, file_content_start) - 4;
+
+        std::string file_content = raw_request.substr(file_content_start, file_content_end - file_content_start);
+
         std::ofstream outfile((config["root"] + "/upload/" + filename).c_str());
-        outfile << content;
+        outfile << file_content;
         outfile.close();
+
         HTTPResponse response;
         response.setStatusCode(200);
         response.setStatusMessage("OK");
@@ -148,12 +152,10 @@ void Server::handleRequest(int client_fd) {
         return;
     }
 
-    // Tratamento para GET e outras requisições
     if (method == "GET") {
         if (uri == "/") {
             requested_path += "/index.html";
         }
-
         struct stat file_stat;
         if (stat(requested_path.c_str(), &file_stat) == 0) {
             if (S_ISDIR(file_stat.st_mode)) {
@@ -164,16 +166,10 @@ void Server::handleRequest(int client_fd) {
                     return;
                 }
             }
-
             if (requested_path.find(".php") != std::string::npos) {
-                CGIHandler cgi_handler(requested_path, request);
-                std::string cgi_output = cgi_handler.execute();
-                HTTPResponse response;
-                response.setStatusCode(200);
-                response.setStatusMessage("OK");
-                response.setHeader("Content-Type", "text/html");
-                response.setBody(cgi_output);
-                send(client_fd, response.toString().c_str(), response.toString().length(), 0);
+                CGIHandler cgiHandler(requested_path, request);
+                std::string cgi_output = cgiHandler.execute();
+                send(client_fd, cgi_output.c_str(), cgi_output.length(), 0);
             } else {
                 serveFile(client_fd, requested_path);
             }
@@ -185,7 +181,6 @@ void Server::handleRequest(int client_fd) {
     }
     close(client_fd);
 }
-
 
 std::string Server::getMimeType(const std::string& path) {
     if (path.find(".html") != std::string::npos || path.find(".htm") != std::string::npos) return "text/html";
@@ -229,15 +224,20 @@ std::string Server::intToString(int num) {
 }
 
 void Server::serveFile(int client_fd, const std::string& path) {
-    std::string file_content = readFile(path);
+    std::string content = readFile(path);
+    if (content.empty()) {
+        sendErrorResponse(client_fd, 404, "Not Found");
+        return;
+    }
+
     HTTPResponse response;
     response.setStatusCode(200);
     response.setStatusMessage("OK");
     response.setHeader("Content-Type", getMimeType(path));
-    response.setBody(file_content);
+    response.setBody(content);
 
     std::string raw_response = response.toString();
     if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
-        std::cerr << "Error writing file response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+        std::cerr << "Error writing response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
     }
 }
