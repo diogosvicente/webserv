@@ -8,13 +8,27 @@
 <body class="bg-secondary">
     <div class="container text-center mt-5">
         <h1>Test File Delete</h1>
-        <p class="lead">Attempting to delete file <code>filetest.txt</code>...</p>
-        <div id="result" class="alert"></div>
+        <p class="lead">Enter the name of the file you want to delete:</p>
+        <div class="form-group">
+            <input type="text" id="filename" class="form-control" placeholder="Enter filename here">
+        </div>
+        <button class="btn btn-danger mt-3" onclick="deleteFile()">Delete File</button>
+        <div id="result" class="alert mt-3"></div>
         <a href="/index.html" class="btn btn-secondary mt-3">Back to Main Page</a>
     </div>
     <script>
         function deleteFile() {
-            fetch('/upload/Concurso.txt', {
+            const filename = document.getElementById('filename').value;
+            if (!filename) {
+                const resultDiv = document.getElementById('result');
+                resultDiv.className = 'alert alert-warning';
+                resultDiv.textContent = 'Please enter a filename.';
+                return;
+            }
+
+            const encodedFilename = encodeURIComponent(filename);
+
+            fetch('/upload/' + encodedFilename, {
                 method: 'DELETE'
             })
             .then(response => {
@@ -33,8 +47,6 @@
                 resultDiv.textContent = 'Error: ' + error;
             });
         }
-
-        window.onload = deleteFile;
     </script>
 </body>
 </html>

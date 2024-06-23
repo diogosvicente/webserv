@@ -4,5 +4,6 @@
 #include <string>
 
 std::string intToString(int num);
+char hexToChar(const std::string& hex);
 
 #endif // UTILS_HPP

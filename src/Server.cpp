@@ -139,6 +139,19 @@ void Server::handleRequest(int client_fd) {
     }
 
     if (method == "DELETE") {
+        std::string decoded_path = uri;
+        // Decoding URL encoding (%20 for spaces, etc.)
+        size_t pos = decoded_path.find('%');
+        while (pos != std::string::npos) {
+            if (pos + 2 < decoded_path.length()) {
+                std::string hex_str = decoded_path.substr(pos + 1, 2);
+                char decoded_char = hexToChar(hex_str);
+                decoded_path.replace(pos, 3, 1, decoded_char);
+            }
+            pos = decoded_path.find('%', pos + 1);
+        }
+        requested_path = config["root"] + decoded_path;
+
         if (remove(requested_path.c_str()) == 0) {
             HTTPResponse response;
             response.setStatusCode(200);
