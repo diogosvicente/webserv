@@ -1,24 +1,41 @@
-#include "Server.hpp"
 #include "ConfigParser.hpp"
+#include "Server.hpp"
 #include <iostream>
-#include <map>
+#include <vector>
 #include <string>
+#include <cstdlib>  // para exit
+#include <sys/wait.h>  // para wait
+#include <unistd.h>  // para fork
 
 int main(int argc, char* argv[]) {
-    if (argc != 2) {
+    if (argc < 2) {
         std::cerr << "Usage: " << argv[0] << " <config_file>" << std::endl;
         return 1;
     }
 
-    try {
-        ConfigParser parser(argv[1]);
-        std::map<std::string, std::string> config = parser.getConfig();
+    std::string config_file = argv[1];
+    ConfigParser parser(config_file);
+    std::vector<std::map<std::string, std::string> > server_configs = parser.getConfig();
 
-        Server server(config);
-        server.run();
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
-        return 1;
+    std::vector<Server> servers;
+    for (std::vector<std::map<std::string, std::string> >::const_iterator it = server_configs.begin(); it != server_configs.end(); ++it) {
+        try {
+            servers.push_back(Server(*it));
+        } catch (const std::exception& e) {
+            std::cerr << "Server initialization error: " << e.what() << std::endl;
+            return 1;
+        }
+    }
+
+    for (std::vector<Server>::iterator it = servers.begin(); it != servers.end(); ++it) {
+        if (fork() == 0) {
+            it->run();
+            exit(0);
+        }
+    }
+
+    for (size_t i = 0; i < servers.size(); ++i) {
+        wait(NULL);
     }
 
     return 0;

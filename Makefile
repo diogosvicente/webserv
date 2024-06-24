@@ -26,22 +26,4 @@ fclean: clean
 
 re: fclean all
 
-.PHONY: all clean fclean re run test_get test_post test_delete test_responses
-
-# Regras de execução
-run:
-	./webserv config/webserv.conf
-
-test_get:
-	@tests/test_get.sh
-
-test_post:
-	@tests/test_post.sh
-
-test_delete:
-	@tests/test_delete.sh
-
-test_responses:
-	@tests/test_responses.sh
-
-test_all: test_get test_post test_delete test_responses
+.PHONY: all clean fclean re run
