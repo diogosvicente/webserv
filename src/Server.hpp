@@ -4,8 +4,9 @@
 #include <string>
 #include <vector>
 #include <map>
-#include <poll.h>
+#include <sys/select.h>
 #include "HTTPRequest.hpp"
+#include "HTTPResponse.hpp"
 
 class Server {
 public:
@@ -14,9 +15,10 @@ public:
 
 private:
     std::map<std::string, std::string> config;
-    std::vector<pollfd> fds;
+    fd_set master_set, read_set;
+    int max_fd;
     std::vector<int> listen_fds;
-    
+
     void init();
     void createSocket(int port);
     void handleRequest(int client_fd);

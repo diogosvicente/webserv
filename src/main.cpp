@@ -3,7 +3,9 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <cstdlib>
+#include <cstdlib>  // para exit
+#include <sys/wait.h>  // para wait
+#include <unistd.h>  // para fork
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -25,8 +27,21 @@ int main(int argc, char* argv[]) {
         }
     }
 
-    for (std::vector<Server>::iterator it = servers.begin(); it != servers.end(); ++it) {
-        it->run();
+    for (size_t i = 0; i < servers.size(); ++i) {
+        pid_t pid = fork();
+        if (pid < 0) {
+            std::cerr << "Fork failed" << std::endl;
+            return 1;
+        } else if (pid == 0) {
+            // Processo filho
+            servers[i].run();
+            exit(0);
+        }
+    }
+
+    // Processo pai espera todos os filhos terminarem
+    for (size_t i = 0; i < servers.size(); ++i) {
+        wait(NULL);
     }
 
     return 0;

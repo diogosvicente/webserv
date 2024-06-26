@@ -17,8 +17,10 @@
 #include <algorithm>
 #include <sys/wait.h>
 
-
 Server::Server(const std::map<std::string, std::string>& config) : config(config) {
+    FD_ZERO(&master_set);
+    FD_ZERO(&read_set);
+    max_fd = 0;
     init();
 }
 
@@ -45,7 +47,7 @@ void Server::createSocket(int port) {
 
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        throw std::runtime_error("Failed to set socket options");  // Corrigido aqui
+        throw std::runtime_error("Failed to set socket options");
     }
 
     sockaddr_in server_addr;
@@ -64,10 +66,10 @@ void Server::createSocket(int port) {
 
     fcntl(listen_fd, F_SETFL, O_NONBLOCK);
 
-    pollfd pfd;
-    pfd.fd = listen_fd;
-    pfd.events = POLLIN;
-    fds.push_back(pfd);
+    FD_SET(listen_fd, &master_set);
+    if (listen_fd > max_fd) {
+        max_fd = listen_fd;
+    }
 
     listen_fds.push_back(listen_fd);
 
@@ -75,43 +77,40 @@ void Server::createSocket(int port) {
 }
 
 void Server::run() {
-    std::cout << "Server running..." << std::endl;
-
     while (true) {
-        int poll_count = poll(&fds[0], fds.size(), -1);
-        if (poll_count < 0) {
-            std::cerr << "Poll error: " << strerror(errno) << std::endl;
-            continue;
+        read_set = master_set;
+        int activity = select(max_fd + 1, &read_set, NULL, NULL, NULL);
+
+        if (activity < 0 && errno != EINTR) {
+            std::cerr << "Select error: " << strerror(errno) << std::endl;
+            return;
         }
 
-        for (size_t i = 0; i < fds.size(); ++i) {
-            if (fds[i].revents & POLLIN) {
-                if (std::find(listen_fds.begin(), listen_fds.end(), fds[i].fd) != listen_fds.end()) {
+        for (int i = 0; i <= max_fd; ++i) {
+            if (FD_ISSET(i, &read_set)) {
+                if (std::find(listen_fds.begin(), listen_fds.end(), i) != listen_fds.end()) {
                     sockaddr_in client_addr;
                     socklen_t client_len = sizeof(client_addr);
-                    int client_fd = accept(fds[i].fd, (struct sockaddr*)&client_addr, &client_len);
+                    int client_fd = accept(i, (struct sockaddr*)&client_addr, &client_len);
                     if (client_fd < 0) {
-                        std::cerr << "Accept error on fd " << fds[i].fd << ": " << strerror(errno) << std::endl;
+                        std::cerr << "Accept error on fd " << i << ": " << strerror(errno) << std::endl;
                         continue;
                     }
 
                     fcntl(client_fd, F_SETFL, O_NONBLOCK);
-
-                    pollfd pfd;
-                    pfd.fd = client_fd;
-                    pfd.events = POLLIN;
-                    fds.push_back(pfd);
+                    FD_SET(client_fd, &master_set);
+                    if (client_fd > max_fd) {
+                        max_fd = client_fd;
+                    }
 
                     std::cout << "New connection accepted on port " << ntohs(client_addr.sin_port) << ", fd: " << client_fd << std::endl;
                 } else {
-                    int fd = fds[i].fd;
-                    std::cout << "Handling request for fd: " << fd << std::endl;
-                    handleRequest(fd);
-                    std::cout << "Request handled for fd: " << fd << std::endl;
-                    close(fd);
-                    fds.erase(fds.begin() + i);
-                    std::cout << "Connection closed and fd removed: " << fd << std::endl;
-                    --i;
+                    std::cout << "Handling request for fd: " << i << std::endl;
+                    handleRequest(i);
+                    std::cout << "Request handled for fd: " << i << std::endl;
+                    close(i);
+                    FD_CLR(i, &master_set);
+                    std::cout << "Connection closed and fd removed: " << i << std::endl;
                 }
             }
         }
@@ -223,30 +222,6 @@ void Server::handleRequest(int client_fd) {
     close(client_fd);
 }
 
-void Server::handleCGI(int client_fd, const std::string& scriptPath, const HTTPRequest& request) {
-    pid_t pid = fork();
-    if (pid == 0) {
-        // Processo filho
-        CGIHandler cgiHandler(scriptPath, request);
-        std::string cgi_output = cgiHandler.execute();
-        send(client_fd, cgi_output.c_str(), cgi_output.length(), 0);
-        exit(0);
-    } else if (pid > 0) {
-        // Processo pai
-        int status;
-        waitpid(pid, &status, 0);
-        if (WIFEXITED(status)) {
-            std::cout << "CGI script exited with status " << WEXITSTATUS(status) << std::endl;
-        } else {
-            std::cerr << "CGI script did not exit properly" << std::endl;
-        }
-    } else {
-        // Falha no fork
-        std::cerr << "Failed to fork for CGI execution: " << strerror(errno) << std::endl;
-        sendErrorResponse(client_fd, 500, "Internal Server Error");
-    }
-}
-
 std::string Server::getRequestedPath(const std::string& uri) {
     std::map<std::string, std::string>::const_iterator it = config.find("location " + uri);
     if (it != config.end()) {
@@ -328,4 +303,22 @@ std::string Server::intToString(int num) {
     std::ostringstream oss;
     oss << num;
     return oss.str();
+}
+
+void Server::handleCGI(int client_fd, const std::string& scriptPath, const HTTPRequest& request) {
+    int pid = fork();
+    if (pid == -1) {
+        sendErrorResponse(client_fd, 500, "Internal Server Error");
+        return;
+    }
+    if (pid == 0) {
+        CGIHandler cgiHandler(scriptPath, request);
+        std::string cgi_output = cgiHandler.execute();
+        send(client_fd, cgi_output.c_str(), cgi_output.length(), 0);
+        close(client_fd);
+        exit(0);
+    } else {
+        int status;
+        waitpid(pid, &status, 0);
+    }
 }
