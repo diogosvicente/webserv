@@ -2,9 +2,10 @@
 #define SERVER_HPP
 
 #include <string>
-#include <map>
 #include <vector>
+#include <map>
 #include <poll.h>
+#include "HTTPRequest.hpp"
 
 class Server {
 public:
@@ -12,17 +13,20 @@ public:
     void run();
 
 private:
-    std::vector<int> listen_fds;
     std::map<std::string, std::string> config;
     std::vector<pollfd> fds;
-
+    std::vector<int> listen_fds;
+    
     void init();
     void createSocket(int port);
     void handleRequest(int client_fd);
+    void handleCGI(int client_fd, const std::string& scriptPath, const HTTPRequest& request);
+    bool isMethodAllowed(const std::string& uri, const std::string& method);
+    std::string getRequestedPath(const std::string& uri);
     void serveFile(int client_fd, const std::string& path);
+    void sendErrorResponse(int client_fd, int status_code, const std::string& status_message);
     std::string getMimeType(const std::string& path);
     std::string readFile(const std::string& path);
-    void sendErrorResponse(int client_fd, int status_code, const std::string& status_message);
     std::string intToString(int num);
 };
 

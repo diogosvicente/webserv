@@ -15,6 +15,8 @@
 #include <sstream>
 #include <errno.h>
 #include <algorithm>
+#include <sys/wait.h>
+
 
 Server::Server(const std::map<std::string, std::string>& config) : config(config) {
     init();
@@ -43,7 +45,7 @@ void Server::createSocket(int port) {
 
     int opt = 1;
     if (setsockopt(listen_fd, SOL_SOCKET, SO_REUSEADDR, &opt, sizeof(opt)) < 0) {
-        throw std::runtime_error("Failed to set socket options");
+        throw std::runtime_error("Failed to set socket options");  // Corrigido aqui
     }
 
     sockaddr_in server_addr;
@@ -130,7 +132,12 @@ void Server::handleRequest(int client_fd) {
 
     std::string method = request.getMethod();
     std::string uri = request.getPath();
-    std::string requested_path = config.at("root") + uri;
+    std::string requested_path = getRequestedPath(uri);
+
+    if (!isMethodAllowed(uri, method)) {
+        sendErrorResponse(client_fd, 405, "Method Not Allowed");
+        return;
+    }
 
     if (method == "POST" && uri == "/upload") {
         std::string boundary = "--" + request.getHeader("Content-Type").substr(30);
@@ -158,7 +165,6 @@ void Server::handleRequest(int client_fd) {
 
     if (method == "DELETE") {
         std::string decoded_path = uri;
-        // Decoding URL encoding (%20 for spaces, etc.)
         size_t pos = decoded_path.find('%');
         while (pos != std::string::npos) {
             if (pos + 2 < decoded_path.length()) {
@@ -204,9 +210,7 @@ void Server::handleRequest(int client_fd) {
                 }
             }
             if (requested_path.find(".php") != std::string::npos) {
-                CGIHandler cgiHandler(requested_path, request);
-                std::string cgi_output = cgiHandler.execute();
-                send(client_fd, cgi_output.c_str(), cgi_output.length(), 0);
+                handleCGI(client_fd, requested_path, request);
             } else {
                 serveFile(client_fd, requested_path);
             }
@@ -217,6 +221,85 @@ void Server::handleRequest(int client_fd) {
         sendErrorResponse(client_fd, 405, "Method Not Allowed");
     }
     close(client_fd);
+}
+
+void Server::handleCGI(int client_fd, const std::string& scriptPath, const HTTPRequest& request) {
+    pid_t pid = fork();
+    if (pid == 0) {
+        // Processo filho
+        CGIHandler cgiHandler(scriptPath, request);
+        std::string cgi_output = cgiHandler.execute();
+        send(client_fd, cgi_output.c_str(), cgi_output.length(), 0);
+        exit(0);
+    } else if (pid > 0) {
+        // Processo pai
+        int status;
+        waitpid(pid, &status, 0);
+        if (WIFEXITED(status)) {
+            std::cout << "CGI script exited with status " << WEXITSTATUS(status) << std::endl;
+        } else {
+            std::cerr << "CGI script did not exit properly" << std::endl;
+        }
+    } else {
+        // Falha no fork
+        std::cerr << "Failed to fork for CGI execution: " << strerror(errno) << std::endl;
+        sendErrorResponse(client_fd, 500, "Internal Server Error");
+    }
+}
+
+std::string Server::getRequestedPath(const std::string& uri) {
+    std::map<std::string, std::string>::const_iterator it = config.find("location " + uri);
+    if (it != config.end()) {
+        return it->second;
+    }
+    return config.at("root") + uri;
+}
+
+bool Server::isMethodAllowed(const std::string& uri, const std::string& method) {
+    std::map<std::string, std::string>::const_iterator it = config.find("location " + uri + " allow_methods");
+    if (it != config.end()) {
+        std::istringstream ss(it->second);
+        std::string allowed_method;
+        while (ss >> allowed_method) {
+            if (allowed_method == method) {
+                return true;
+            }
+        }
+        return false;
+    }
+    return true;
+}
+
+void Server::serveFile(int client_fd, const std::string& path) {
+    std::string content = readFile(path);
+    if (content.empty()) {
+        sendErrorResponse(client_fd, 404, "Not Found");
+        return;
+    }
+
+    HTTPResponse response;
+    response.setStatusCode(200);
+    response.setStatusMessage("OK");
+    response.setHeader("Content-Type", getMimeType(path));
+    response.setBody(content);
+
+    std::string raw_response = response.toString();
+    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
+        std::cerr << "Error writing response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+    }
+}
+
+void Server::sendErrorResponse(int client_fd, int status_code, const std::string& status_message) {
+    HTTPResponse response;
+    response.setStatusCode(status_code);
+    response.setStatusMessage(status_message);
+    response.setHeader("Content-Type", "text/html");
+    response.setBody("<html><body><h1>" + intToString(status_code) + " " + status_message + "</h1></body></html>");
+
+    std::string raw_response = response.toString();
+    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
+        std::cerr << "Error writing error response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+    }
 }
 
 std::string Server::getMimeType(const std::string& path) {
@@ -241,40 +324,8 @@ std::string Server::readFile(const std::string& path) {
     return buffer.str();
 }
 
-void Server::sendErrorResponse(int client_fd, int status_code, const std::string& status_message) {
-    HTTPResponse response;
-    response.setStatusCode(status_code);
-    response.setStatusMessage(status_message);
-    response.setHeader("Content-Type", "text/html");
-    response.setBody("<html><body><h1>" + intToString(status_code) + " " + status_message + "</h1></body></html>");
-
-    std::string raw_response = response.toString();
-    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
-        std::cerr << "Error writing error response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
-    }
-}
-
 std::string Server::intToString(int num) {
     std::ostringstream oss;
     oss << num;
     return oss.str();
-}
-
-void Server::serveFile(int client_fd, const std::string& path) {
-    std::string content = readFile(path);
-    if (content.empty()) {
-        sendErrorResponse(client_fd, 404, "Not Found");
-        return;
-    }
-
-    HTTPResponse response;
-    response.setStatusCode(200);
-    response.setStatusMessage("OK");
-    response.setHeader("Content-Type", getMimeType(path));
-    response.setBody(content);
-
-    std::string raw_response = response.toString();
-    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
-        std::cerr << "Error writing response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
-    }
 }

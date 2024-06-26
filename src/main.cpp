@@ -3,9 +3,7 @@
 #include <iostream>
 #include <vector>
 #include <string>
-#include <cstdlib>  // para exit
-#include <sys/wait.h>  // para wait
-#include <unistd.h>  // para fork
+#include <cstdlib>
 
 int main(int argc, char* argv[]) {
     if (argc < 2) {
@@ -28,14 +26,7 @@ int main(int argc, char* argv[]) {
     }
 
     for (std::vector<Server>::iterator it = servers.begin(); it != servers.end(); ++it) {
-        if (fork() == 0) {
-            it->run();
-            exit(0);
-        }
-    }
-
-    for (size_t i = 0; i < servers.size(); ++i) {
-        wait(NULL);
+        it->run();
     }
 
     return 0;
