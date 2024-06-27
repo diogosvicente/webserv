@@ -16,6 +16,11 @@
 #include <errno.h>
 #include <algorithm>
 #include <sys/wait.h>
+#include <dirent.h>
+
+static void log(std::string const& s) {
+    std::cout << s << std::endl;
+}
 
 Server::Server(const std::map<std::string, std::string>& config) : config(config) {
     FD_ZERO(&master_set);
@@ -195,20 +200,18 @@ void Server::handleRequest(int client_fd) {
     }
 
     if (method == "GET") {
-        if (uri == "/") {
-            requested_path += "/index.html";
-        }
+        std::string index_path = requested_path + "index.html";
         struct stat file_stat;
         if (stat(requested_path.c_str(), &file_stat) == 0) {
             if (S_ISDIR(file_stat.st_mode)) {
-                requested_path += "/index.html";
-                if (stat(requested_path.c_str(), &file_stat) != 0) {
-                    sendErrorResponse(client_fd, 404, "Not Found");
+                if (stat(index_path.c_str(), &file_stat) != 0) {
+                    sendDirListing(client_fd, uri, requested_path);
                     close(client_fd);
                     return;
                 }
+                serveFile(client_fd, index_path);
             }
-            if (requested_path.find(".php") != std::string::npos) {
+            else if (requested_path.find(".php") != std::string::npos) {
                 handleCGI(client_fd, requested_path, request);
             } else {
                 serveFile(client_fd, requested_path);
@@ -277,11 +280,69 @@ void Server::sendErrorResponse(int client_fd, int status_code, const std::string
     }
 }
 
+void Server::sendDirListing(int client_fd, const std::string& uri, const std::string& path) {
+    HTTPResponse response;
+    response.setStatusCode(200);
+    response.setStatusMessage("OK");
+    response.setHeader("Content-Type", "text/html");
+
+    DIR* dir;
+    struct dirent* entry;
+    std::ostringstream oss_body;
+
+    oss_body <<
+        "<html>"
+        "<head><title>Directory Listing</title></head>"
+        "<body>"
+        "<h1>Directory listing for "
+        << uri + "</h1>"
+        "<hr>"
+        "<ul>";
+
+    if ((dir = opendir(path.c_str())) != NULL) {
+        while ((entry = readdir(dir)) != NULL) {
+            // Skip . and .. dirs
+            if (strcmp(entry->d_name, ".") == 0 ||
+                strcmp(entry->d_name, "..") == 0) {
+                continue ;
+            }
+
+            std::string entry_path = path + entry->d_name;
+            struct stat stat_buf;
+            if (stat(entry_path.c_str(), &stat_buf) == -1) {
+                log("Error accessing file information");
+            }
+
+            oss_body
+                << "<li>"
+                << "<a href=\""
+                << uri + entry->d_name;
+            if (S_ISDIR(stat_buf.st_mode)) {
+                oss_body << "/";
+            }
+            oss_body
+                << "\">"
+                << entry->d_name
+                << "</a></li>";
+        }
+        closedir(dir);
+    }
+    oss_body << "</ul><hr></body></html>";
+
+    response.setBody(oss_body.str());
+
+    std::string raw_response = response.toString();
+    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
+        std::cerr << "Error writing error response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+    }
+}
+
 std::string Server::getMimeType(const std::string& path) {
     if (path.find(".html") != std::string::npos || path.find(".htm") != std::string::npos) return "text/html";
     if (path.find(".css") != std::string::npos) return "text/css";
     if (path.find(".js") != std::string::npos) return "application/javascript";
     if (path.find(".png") != std::string::npos) return "image/png";
+    if (path.find(".svg") != std::string::npos) return "image/svg+xml";
     if (path.find(".jpg") != std::string::npos || path.find(".jpeg") != std::string::npos) return "image/jpeg";
     if (path.find(".gif") != std::string::npos) return "image/gif";
     if (path.find(".txt") != std::string::npos) return "text/plain";
