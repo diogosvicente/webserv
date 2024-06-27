@@ -28,6 +28,7 @@ private:
     void serveFile(int client_fd, const std::string& path);
     void sendErrorResponse(int client_fd, int status_code, const std::string& status_message);
     void sendDirListing(int client_fd, const std::string& uri, const std::string& path);
+    void sendRedirectResponse(int client_fd, const std::string& normalized_url);
     std::string getMimeType(const std::string& path);
     std::string readFile(const std::string& path);
     std::string intToString(int num);

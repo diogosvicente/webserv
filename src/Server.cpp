@@ -200,29 +200,45 @@ void Server::handleRequest(int client_fd) {
     }
 
     if (method == "GET") {
-        std::string index_path = requested_path + "index.html";
         struct stat file_stat;
-        if (stat(requested_path.c_str(), &file_stat) == 0) {
-            if (S_ISDIR(file_stat.st_mode)) {
-                if (stat(index_path.c_str(), &file_stat) != 0) {
-                    sendDirListing(client_fd, uri, requested_path);
-                    close(client_fd);
-                    return;
-                }
-                serveFile(client_fd, index_path);
-            }
-            else if (requested_path.find(".php") != std::string::npos) {
-                handleCGI(client_fd, requested_path, request);
-            } else {
-                serveFile(client_fd, requested_path);
-            }
-        } else {
+        if (stat(requested_path.c_str(), &file_stat) == -1) {
             sendErrorResponse(client_fd, 404, "Not Found");
+        }
+
+        else if (S_ISDIR(file_stat.st_mode)) {
+            if (requested_path.at(requested_path.size()-1) != '/') {
+                sendRedirectResponse(client_fd, uri+"/");
+            }
+            std::string index_path = requested_path + "index.html";
+            if (stat(index_path.c_str(), &file_stat) == -1) {
+                sendDirListing(client_fd, uri, requested_path);
+                close(client_fd);
+                return;
+            }
+            serveFile(client_fd, index_path);
+        }
+        else if (requested_path.find(".php") != std::string::npos) {
+            handleCGI(client_fd, requested_path, request);
+        } else {
+            serveFile(client_fd, requested_path);
         }
     } else {
         sendErrorResponse(client_fd, 405, "Method Not Allowed");
     }
     close(client_fd);
+}
+
+void Server::sendRedirectResponse(int client_fd, const std::string& normalized_url) {
+    HTTPResponse response;
+    response.setStatusCode(301);
+    response.setStatusMessage("Moved Permanently");
+    response.setHeader("Location", normalized_url);
+    response.setHeader("Content-Length", "0");
+
+    std::string raw_response = response.toString();
+    if (write(client_fd, raw_response.c_str(), raw_response.size()) < 0) {
+        std::cerr << "Error writing error response to fd: " << client_fd << ", error: " << strerror(errno) << std::endl;
+    }
 }
 
 std::string Server::getRequestedPath(const std::string& uri) {
@@ -306,11 +322,11 @@ void Server::sendDirListing(int client_fd, const std::string& uri, const std::st
                 strcmp(entry->d_name, "..") == 0) {
                 continue ;
             }
-
             std::string entry_path = path + entry->d_name;
+
             struct stat stat_buf;
             if (stat(entry_path.c_str(), &stat_buf) == -1) {
-                log("Error accessing file information");
+                log("Error accessing file information from dir listing");
             }
 
             oss_body
