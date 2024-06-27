@@ -138,6 +138,26 @@ void Server::handleRequest(int client_fd) {
     std::string uri = request.getPath();
     std::string requested_path = getRequestedPath(uri);
 
+    if (uri == "/old-path") {
+        HTTPResponse response;
+        response.setStatusCode(301);
+        response.setStatusMessage("Moved Permanently");
+        response.setHeader("Location", "/new-path");
+        send(client_fd, response.toString().c_str(), response.toString().length(), 0);
+        close(client_fd);
+        return;
+    }
+
+    if (uri == "/custom-return") {
+        HTTPResponse response;
+        response.setStatusCode(200);
+        response.setStatusMessage("OK");
+        response.setBody("Custom return message");
+        send(client_fd, response.toString().c_str(), response.toString().length(), 0);
+        close(client_fd);
+        return;
+    }
+
     if (!isMethodAllowed(uri, method)) {
         sendErrorResponse(client_fd, 405, "Method Not Allowed");
         return;
