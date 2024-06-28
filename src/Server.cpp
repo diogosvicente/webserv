@@ -22,7 +22,7 @@ static void log(std::string const& s) {
     std::cout << s << std::endl;
 }
 
-Server::Server(const std::map<std::string, std::string>& config) : config(config) {
+Server::Server(const std::vector<std::map<std::string, std::string> >& configs) : configs(configs) {
     FD_ZERO(&master_set);
     FD_ZERO(&read_set);
     max_fd = 0;
@@ -30,21 +30,18 @@ Server::Server(const std::map<std::string, std::string>& config) : config(config
 }
 
 void Server::init() {
-    std::string portStr = config.at("listen");
-    std::istringstream portStream(portStr);
-    std::string port;
-
-    while (std::getline(portStream, port, ',')) {
-        int portNum = atoi(port.c_str());
-        if (portNum > 0) {
-            createSocket(portNum);
-        } else {
-            throw std::runtime_error("Invalid port number: " + port);
-        }
+    for (std::vector<std::map<std::string, std::string> >::const_iterator it = configs.begin(); it != configs.end(); ++it) {
+        createSocket(*it);
     }
 }
 
-void Server::createSocket(int port) {
+void Server::createSocket(const std::map<std::string, std::string>& config) {
+    std::string portStr = config.at("listen");
+    int portNum = atoi(portStr.c_str());
+    if (portNum <= 0) {
+        throw std::runtime_error("Invalid port number: " + portStr);
+    }
+
     int listen_fd = socket(AF_INET, SOCK_STREAM, 0);
     if (listen_fd < 0) {
         throw std::runtime_error("Failed to create socket");
@@ -59,14 +56,14 @@ void Server::createSocket(int port) {
     std::memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
-    server_addr.sin_port = htons(port);
+    server_addr.sin_port = htons(portNum);
 
     if (bind(listen_fd, (struct sockaddr*)&server_addr, sizeof(server_addr)) < 0) {
-        throw std::runtime_error("Failed to bind socket on port " + intToString(port));
+        throw std::runtime_error("Failed to bind socket on port " + intToString(portNum));
     }
 
     if (listen(listen_fd, 10) < 0) {
-        throw std::runtime_error("Failed to listen on socket on port " + intToString(port));
+        throw std::runtime_error("Failed to listen on socket on port " + intToString(portNum));
     }
 
     fcntl(listen_fd, F_SETFL, O_NONBLOCK);
@@ -78,7 +75,7 @@ void Server::createSocket(int port) {
 
     listen_fds.push_back(listen_fd);
 
-    std::cout << "Server initialized and listening on port " << port << "..." << std::endl;
+    std::cout << "Server initialized and listening on port " << portNum << "..." << std::endl;
 }
 
 void Server::run() {
@@ -110,19 +107,35 @@ void Server::run() {
 
                     std::cout << "New connection accepted on port " << ntohs(client_addr.sin_port) << ", fd: " << client_fd << std::endl;
                 } else {
-                    std::cout << "Handling request for fd: " << i << std::endl;
-                    handleRequest(i);
-                    std::cout << "Request handled for fd: " << i << std::endl;
-                    close(i);
-                    FD_CLR(i, &master_set);
-                    std::cout << "Connection closed and fd removed: " << i << std::endl;
+                    // Encontrar a configuração associada ao descritor do cliente
+                    std::map<std::string, std::string> config;
+                    for (std::vector<std::map<std::string, std::string> >::const_iterator it = configs.begin(); it != configs.end(); ++it) {
+                        std::string portStr = it->at("listen");
+                        int portNum = atoi(portStr.c_str());
+                        sockaddr_in addr;
+                        socklen_t len = sizeof(addr);
+                        getsockname(i, (struct sockaddr*)&addr, &len);
+                        if (ntohs(addr.sin_port) == portNum) {
+                            config = *it;
+                            break;
+                        }
+                    }
+
+                    if (!config.empty()) {
+                        std::cout << "Handling request for fd: " << i << std::endl;
+                        handleRequest(i, config);
+                        std::cout << "Request handled for fd: " << i << std::endl;
+                        close(i);
+                        FD_CLR(i, &master_set);
+                        std::cout << "Connection closed and fd removed: " << i << std::endl;
+                    }
                 }
             }
         }
     }
 }
 
-void Server::handleRequest(int client_fd) {
+void Server::handleRequest(int client_fd, const std::map<std::string, std::string>& config) {
     char buffer[4096];
     int bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
     if (bytes_read < 0) {
@@ -136,7 +149,7 @@ void Server::handleRequest(int client_fd) {
 
     std::string method = request.getMethod();
     std::string uri = request.getPath();
-    std::string requested_path = getRequestedPath(uri);
+    std::string requested_path = getRequestedPath(uri, config);
 
     if (uri == "/old-path") {
         HTTPResponse response;
@@ -158,7 +171,7 @@ void Server::handleRequest(int client_fd) {
         return;
     }
 
-    if (!isMethodAllowed(uri, method)) {
+    if (!isMethodAllowed(uri, method, config)) {
         sendErrorResponse(client_fd, 405, "Method Not Allowed");
         return;
     }
@@ -261,7 +274,7 @@ void Server::sendRedirectResponse(int client_fd, const std::string& normalized_u
     }
 }
 
-std::string Server::getRequestedPath(const std::string& uri) {
+std::string Server::getRequestedPath(const std::string& uri, const std::map<std::string, std::string>& config) {
     std::map<std::string, std::string>::const_iterator it = config.find("location " + uri);
     if (it != config.end()) {
         return it->second;
@@ -269,7 +282,7 @@ std::string Server::getRequestedPath(const std::string& uri) {
     return config.at("root") + uri;
 }
 
-bool Server::isMethodAllowed(const std::string& uri, const std::string& method) {
+bool Server::isMethodAllowed(const std::string& uri, const std::string& method, const std::map<std::string, std::string>& config) {
     std::map<std::string, std::string>::const_iterator it = config.find("location " + uri + " allow_methods");
     if (it != config.end()) {
         std::istringstream ss(it->second);

@@ -10,21 +10,21 @@
 
 class Server {
 public:
-    Server(const std::map<std::string, std::string>& config);
+    Server(const std::vector<std::map<std::string, std::string> >& configs);
     void run();
 
 private:
-    std::map<std::string, std::string> config;
+    std::vector<std::map<std::string, std::string> > configs;
     fd_set master_set, read_set;
     int max_fd;
     std::vector<int> listen_fds;
 
     void init();
-    void createSocket(int port);
-    void handleRequest(int client_fd);
+    void createSocket(const std::map<std::string, std::string>& config);
+    void handleRequest(int client_fd, const std::map<std::string, std::string>& config);
     void handleCGI(int client_fd, const std::string& scriptPath, const HTTPRequest& request);
-    bool isMethodAllowed(const std::string& uri, const std::string& method);
-    std::string getRequestedPath(const std::string& uri);
+    bool isMethodAllowed(const std::string& uri, const std::string& method, const std::map<std::string, std::string>& config);
+    std::string getRequestedPath(const std::string& uri, const std::map<std::string, std::string>& config);
     void serveFile(int client_fd, const std::string& path);
     void sendErrorResponse(int client_fd, int status_code, const std::string& status_message);
     void sendDirListing(int client_fd, const std::string& uri, const std::string& path);
